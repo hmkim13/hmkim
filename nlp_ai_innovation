@@ -1,1 +1,112 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
+import re
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.preprocessing.text import Tokenizer
+import warnings 
+warnings.filterwarnings(action='ignore')
+
+!unzip -q '/content/drive/My Drive/open.zip' -d '/content/drive/My Drive/NLP/'
+
+train = pd.read_csv('/content/drive/My Drive/NLP/train.csv', encoding = 'utf-8')
+test = pd.read_csv('/content/drive/My Drive/NLP/test_x.csv', encoding = 'utf-8')
+sample_submission = pd.read_csv('/content/drive/My Drive/NLP/sample_submission.csv', encoding = 'utf-8')
+
+train
+test
+sample_submission
+
+#부호를 제거해주는 함수
+def alpha_num(text):
+    return re.sub(r'[^A-Za-z0-9 ]', '', text)
+
+train['text']=train['text'].apply(alpha_num)
+train
+
+# 불용어 제거해주는 함수
+def remove_stopwords(text):
+    final_text = []
+    for i in text.split():
+        if i.strip().lower() not in stopwords:
+            final_text.append(i.strip())
+    return " ".join(final_text)
+
+# 불용어
+stopwords = [ "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "as", 
+             "at", "be", "because", "been", "before", "being", "below", "between", "both", "but", "by", "could", 
+             "did", "do", "does", "doing", "down", "during", "each", "few", "for", "from", "further", "had", "has", 
+             "have", "having", "he", "he'd", "he'll", "he's", "her", "here", "here's", "hers", "herself", "him", "himself", 
+             "his", "how", "how's", "i", "i'd", "i'll", "i'm", "i've", "if", "in", "into", "is", "it", "it's", "its", "itself", 
+             "let's", "me", "more", "most", "my", "myself", "nor", "of", "on", "once", "only", "or", "other", "ought", "our", "ours", 
+             "ourselves", "out", "over", "own", "same", "she", "she'd", "she'll", "she's", "should", "so", "some", "such", "than", "that", 
+             "that's", "the", "their", "theirs", "them", "themselves", "then", "there", "there's", "these", "they", "they'd", "they'll", 
+             "they're", "they've", "this", "those", "through", "to", "too", "under", "until", "up", "very", "was", "we", "we'd", "we'll", 
+             "we're", "we've", "were", "what", "what's", "when", "when's", "where", "where's", "which", "while", "who", "who's", "whom", 
+             "why", "why's", "with", "would", "you", "you'd", "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves" ]
+             
+#전처리 적용
+train['text'] = train['text'].str.lower()
+test['text'] = test['text'].str.lower()
+train['text'] = train['text'].str.lower().apply(alpha_num).apply(remove_stopwords)
+test['text'] = test['text'].str.lower().apply(alpha_num).apply(remove_stopwords)
+
+# train test 분리
+X_train = np.array([x for x in train['text']])
+X_test = np.array([x for x in test['text']])
+y_train = np.array([x for x in train['author']])
+X_train
+
+#파라미터 설정
+vocab_size = 20000
+embedding_dim = 64
+max_length = 500
+padding_type='post'
+
+#tokenizer에 fit
+tokenizer = Tokenizer(num_words = vocab_size)#, oov_token=oov_tok)
+tokenizer.fit_on_texts(X_train)
+word_index = tokenizer.word_index
+
+#데이터를 sequence로 변환해주고 padding 해줍니다.
+train_sequences = tokenizer.texts_to_sequences(X_train)
+train_padded = pad_sequences(train_sequences, padding=padding_type, maxlen=max_length)
+
+test_sequences = tokenizer.texts_to_sequences(X_test)
+test_padded = pad_sequences(test_sequences, padding=padding_type, maxlen=max_length)
+
+#가벼운 NLP모델 생성
+model = tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size, embedding_dim, input_length=max_length),
+    tf.keras.layers.GlobalAveragePooling1D(),
+    tf.keras.layers.Dense(24, activation='relu'),
+    tf.keras.layers.Dense(5, activation='softmax')
+])
+
+# compile model
+model.compile(loss='sparse_categorical_crossentropy',
+              optimizer='adam',
+              metrics=['accuracy'])
+
+# model summary
+print(model.summary())
+
+# fit model
+num_epochs = 100
+history = model.fit(train_padded, y_train, 
+                    epochs=num_epochs, verbose=2, 
+                    validation_split=0.2)
+                    
+# predict values
+pred = model.predict_proba(test_padded)
+pred
+
+# submission
+sample_submission[['0','1','2','3','4']] = pred
+sample_submission
+
+sample_submission.to_csv('submission.csv', index = False, encoding = 'utf-8')
 
